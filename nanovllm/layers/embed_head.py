@@ -56,11 +56,15 @@ class ParallelLMHead(VocabParallelEmbedding):
     def forward(self, x: torch.Tensor):
         context = get_context()
         if context.is_prefill:
+            # sykdebug: prefill阶段完成后，只需要取最后一个x对应的预测结果，即可。
             last_indices = context.cu_seqlens_q[1:] - 1
+            print(f"sykdebug: during ParallelLMHead, prefill={context.is_prefill}, input x.shape={x.shape}, "
+                  f"context.cu_seqlens_q={ context.cu_seqlens_q}, last_indices={last_indices}")
             x = x[last_indices].contiguous()
         logits = F.linear(x, self.weight)
         if self.tp_size > 1:
             all_logits = [torch.empty_like(logits) for _ in range(self.tp_size)] if self.tp_rank == 0 else None
             dist.gather(logits, all_logits, 0)
             logits = torch.cat(all_logits, -1) if self.tp_rank == 0 else None
+        print(f"sykdebug: after ParallelLMHead, input x.shape={x.shape}, output logits.shape={logits.shape}")
         return logits

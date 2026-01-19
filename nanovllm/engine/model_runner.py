@@ -28,6 +28,7 @@ class ModelRunner:
         print(f"sykdebug: begin ModelRunner, device rank={rank}")
         default_dtype = torch.get_default_dtype()
         torch.set_default_dtype(hf_config.torch_dtype)
+        # sykdebug: 使得后续的tensor全部创建在显存中，
         torch.set_default_device("cuda")
         self.model = Qwen3ForCausalLM(hf_config)
         
@@ -97,6 +98,7 @@ class ModelRunner:
         num_seqs = min(max_num_batched_tokens // max_model_len, self.config.max_num_seqs)
         print(f"sykdebug: begin warmup_model, max_num_batched_tokens={max_num_batched_tokens}, max_model_len={max_model_len}, num_seqs={num_seqs}")
         seqs = [Sequence([0] * max_model_len) for _ in range(num_seqs)]
+        # sykdebug: warmup 阶段没有调用allocate block，因此对应的block_table为空
         self.run(seqs, True)
         torch.cuda.empty_cache()
 
@@ -115,7 +117,7 @@ class ModelRunner:
         self.kv_cache = torch.empty(2, hf_config.num_hidden_layers, config.num_kvcache_blocks, self.block_size, num_kv_heads, head_dim)
         layer_id = 0
         print(f"sykdebug: during allocate_kv_cache, total={total}, gpu_memory_utilization={config.gpu_memory_utilization}, used={used}, peak={peak}, current={current}")
-        print(f"sykdebug: during allocate_kv_cache, num_kv_heads={num_kv_heads}, head_dim={head_dim}, block_size={self.block_size}, "
+        print(f"sykdebug: during allocate_kv_cache, kv_cache.size={self.kv_cache.size}, num_kv_heads={num_kv_heads}, head_dim={head_dim}, block_size={self.block_size}, "
               f"block_bytes={block_bytes}, num_kvcache_blocks={config.num_kvcache_blocks}")
         for module in self.model.modules():
             if hasattr(module, "k_cache") and hasattr(module, "v_cache"):
@@ -143,29 +145,34 @@ class ModelRunner:
             seqlen = len(seq)
             input_ids.extend(seq[seq.num_cached_tokens:])
             positions.extend(list(range(seq.num_cached_tokens, seqlen)))
-            print(f"sykdebug: during prefill, for seq_id={seq.seq_id}, num_cached_tokens={seq.num_cached_tokens}, "
-                  f"extend input_ids to len(input_ids)={len(input_ids)}, extend positions to len(positions)={len(positions)}")
             seqlen_q = seqlen - seq.num_cached_tokens
             seqlen_k = seqlen
             cu_seqlens_q.append(cu_seqlens_q[-1] + seqlen_q)
             cu_seqlens_k.append(cu_seqlens_k[-1] + seqlen_k)
             max_seqlen_q = max(seqlen_q, max_seqlen_q)
             max_seqlen_k = max(seqlen_k, max_seqlen_k)
-            print(f"sykdebug: begin to deal with one sequence, seq.seq_id={seq.seq_id}, seqlen={len(seq)}, "
-                  f"seq.num_cached_tokens={seq.num_cached_tokens}, seqlen_q={seqlen_q}, seqlen_k={seqlen_k}, "
-                  f"max_seqlen_q={max_seqlen_q}, max_seqlen_k={max_seqlen_k}, seq.num_blocks={seq.num_blocks}")
+            print(f"sykdebug: during prefill, for seq_id={seq.seq_id}, num_cached_tokens={seq.num_cached_tokens}, "
+                  f"extend input_ids to len(input_ids)={len(input_ids)}, extend positions to len(positions)={len(positions)}, "
+                  f"seqlen={len(seq)}, seq.num_cached_tokens={seq.num_cached_tokens}, seqlen_q={seqlen_q}, seqlen_k={seqlen_k}, "
+                  f"cu_seqlens_q={cu_seqlens_q}, cu_seqlens_k={cu_seqlens_k}, seq.num_blocks={seq.num_blocks}")
             if not seq.block_table:    # warmup
-                print(f"sykdebug: no block_table")
+                print(f"sykdebug: warmup step, no block_table")
                 continue
             for i in range(seq.num_cached_blocks, seq.num_blocks):
                 start = seq.block_table[i] * self.block_size
+                # sykdebug: 判断是否占满整个block
                 if i != seq.num_blocks - 1:
                     end = start + self.block_size
                 else:
-                    end = start + seq.last_block_num_tokens 
+                    end = start + seq.last_block_num_tokens
+                print(f"sykdebug: during prefill, for seq.seq_id={seq.seq_id}, num_cached_blocks={seq.num_cached_blocks}, "
+                      f"num_blocks={seq.num_blocks}, slot_start={start}, slot_end={end}") 
                 slot_mapping.extend(list(range(start, end)))
+            print(f"sykdebug: during prefill, for seq_id={seq.seq_id}, extend slot_mapping to len(slot_mapping)={len(slot_mapping)}")
         if cu_seqlens_k[-1] > cu_seqlens_q[-1]:    # prefix cache
             block_tables = self.prepare_block_tables(seqs)
+            print(f"sykdebug: during prefill, prepare_block_tables, block_tables.shape={block_tables.shape}")
+        # sykdebug: 看起来 prefill阶段，会将所有的seq统一整理为一个seq，合并后进行prefill
         input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_q = torch.tensor(cu_seqlens_q, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
@@ -184,6 +191,7 @@ class ModelRunner:
             positions.append(len(seq) - 1)
             context_lens.append(len(seq))
             slot_mapping.append(seq.block_table[-1] * self.block_size + seq.last_block_num_tokens  - 1)
+        print(f"sykdebug: during decode, input_ids={input_ids}, positions={positions}, context_lens={context_lens}, slot_mapping={slot_mapping}")
         input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
@@ -225,6 +233,7 @@ class ModelRunner:
         temperatures = self.prepare_sample(seqs) if self.rank == 0 else None
         logits = self.run_model(input_ids, positions, is_prefill)
         token_ids = self.sampler(logits, temperatures).tolist() if self.rank == 0 else None
+        print(f"sykdebug: after sampler, for logits.shape={logits.shape}, token_ids={token_ids}")
         reset_context()
         return token_ids
 

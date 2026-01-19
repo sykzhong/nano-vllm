@@ -124,11 +124,6 @@ class Qwen3DecoderLayer(nn.Module):
         config: Qwen3Config,
     ) -> None:
         super().__init__()
-        print(f"sykdebug: during init qwen3decoderlayer, hidden_size={config.hidden_size}, num_attention_heads={config.num_attention_heads}, "
-              f"num_key_value_heads={config.num_key_value_heads}, max_position={config.max_position_embeddings}, "
-              f"rms_norm_eps={config.rms_norm_eps}, attention_bias={getattr(config, 'attention_bias', True)}, "
-              f"head_dim={getattr(config, 'head_dim', None)}, rope_theta={getattr(config, 'rope_theta', 1000000)}, "
-              f"rope_scaling={getattr(config, 'rope_scaling', None)}")
         self.self_attn = Qwen3Attention(
             hidden_size=config.hidden_size,
             num_heads=config.num_attention_heads,
@@ -172,6 +167,12 @@ class Qwen3Model(nn.Module):
     ) -> None:
         super().__init__()
         self.embed_tokens = VocabParallelEmbedding(config.vocab_size, config.hidden_size)
+        
+        print(f"sykdebug: during init qwen3decoderlayer, hidden_size={config.hidden_size}, num_attention_heads={config.num_attention_heads}, "
+              f"num_key_value_heads={config.num_key_value_heads}, max_position={config.max_position_embeddings}, "
+              f"rms_norm_eps={config.rms_norm_eps}, attention_bias={getattr(config, 'attention_bias', True)}, "
+              f"head_dim={getattr(config, 'head_dim', None)}, rope_theta={getattr(config, 'rope_theta', 1000000)}, "
+              f"rope_scaling={getattr(config, 'rope_scaling', None)}, vocab_size={config.vocab_size}, num_hidden_layers={config.num_hidden_layers}")
         self.layers = nn.ModuleList([Qwen3DecoderLayer(config) for _ in range(config.num_hidden_layers)])
         self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
@@ -182,9 +183,11 @@ class Qwen3Model(nn.Module):
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
         residual = None
+        print(f"sykdebug: during qwen3model forward, after embed_tokens, hiddens_states.shape={hidden_states.shape}")
         for layer in self.layers:
             hidden_states, residual = layer(positions, hidden_states, residual)
         hidden_states, _ = self.norm(hidden_states, residual)
+        print(f"sykdebug: after qwen3model forward, hidden_states.shape={hidden_states.shape}")
         return hidden_states
 
 

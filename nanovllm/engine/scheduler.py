@@ -19,6 +19,7 @@ class Scheduler:
         return not self.waiting and not self.running
 
     def add(self, seq: Sequence):
+        print(f"sykdebug: begin to add seq.id={seq.seq_id}, len(seq.token_ids)={len(seq.token_ids)}")
         self.waiting.append(seq)
 
     def schedule(self) -> tuple[list[Sequence], bool]:
@@ -26,10 +27,12 @@ class Scheduler:
         scheduled_seqs = []
         num_seqs = 0
         num_batched_tokens = 0
+        print(f"sykdebug: during schedule, len(waiting)={len(self.waiting)}, len(running)={len(self.running)}, num_seqs={num_seqs}")
         while self.waiting and num_seqs < self.max_num_seqs:
-            print(f"sykdebug: during schedule, waiting not empty, num_seqs={num_seqs} < self.max_num_seqs={self.max_num_seqs}")
             seq = self.waiting[0]
+            print(f"sykdebug: begin deal the waiting queue, for seq_id={seq.seq_id}")
             if num_batched_tokens + len(seq) > self.max_num_batched_tokens or not self.block_manager.can_allocate(seq):
+                print(f"sykdebug: out of max_num_batched_tokens={self.max_num_batched_tokens}, or can not allocate")
                 break
             num_seqs += 1
             self.block_manager.allocate(seq)
@@ -65,6 +68,7 @@ class Scheduler:
 
     def postprocess(self, seqs: list[Sequence], token_ids: list[int]) -> list[bool]:
         for seq, token_id in zip(seqs, token_ids):
+            print(f"sykdebug: during postprocess, for seq.seq_id={seq.seq_id}, append token_id={token_id}")
             seq.append_token(token_id)
             if (not seq.ignore_eos and token_id == self.eos) or seq.num_completion_tokens == seq.max_tokens:
                 seq.status = SequenceStatus.FINISHED

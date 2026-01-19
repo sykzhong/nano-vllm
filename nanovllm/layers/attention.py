@@ -37,6 +37,7 @@ def store_kvcache(key: torch.Tensor, value: torch.Tensor, k_cache: torch.Tensor,
     assert key.stride(1) == head_dim and value.stride(1) == head_dim
     assert k_cache.stride(1) == D and v_cache.stride(1) == D
     assert slot_mapping.numel() == N
+    # sykdebug: 相当于将key, value复制到k_cache, v_cache中去
     store_kvcache_kernel[(N,)](key, key.stride(0), value, value.stride(0), k_cache, v_cache, slot_mapping, D)
 
 
@@ -60,8 +61,10 @@ class Attention(nn.Module):
         context = get_context()
         k_cache, v_cache = self.k_cache, self.v_cache
         if k_cache.numel() and v_cache.numel():
-            print(f"sykdebug: during attention, k_cache/v_cache not empty, "
-                  f"k_cache.shape={k_cache.shape}, v_cache.shape={v_cache.shape}, context.slot_mapping.shape={context.slot_mapping.shape}")
+            print(f"sykdebug: during attention, k_cache/v_cache not empty, k_cache.shape={k_cache.shape}, "
+                  f"v_cache.shape={v_cache.shape}, k.shape={k.shape}, v.shape={v.shape}, "
+                  f"context.slot_mapping.shape={context.slot_mapping.shape}, "
+                  f"begin to store_kvcache")
             store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)
         if context.is_prefill:
             if context.block_tables is not None:    # prefix cache
