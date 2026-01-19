@@ -80,6 +80,8 @@ class BlockManager:
                 block.update(h, token_ids)
                 self.hash_to_block_id[h] = block_id
             seq.block_table.append(block_id)
+    
+        print(f"sykdebug: during BlockManager.allocate, for seq_id={seq.seq_id}, num_blocks={seq.num_blocks}, seq.block_table={seq.block_table}")
 
     def deallocate(self, seq: Sequence):
         for block_id in reversed(seq.block_table):

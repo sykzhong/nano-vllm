@@ -25,10 +25,12 @@ class ModelRunner:
 
         dist.init_process_group("nccl", "tcp://localhost:2333", world_size=self.world_size, rank=rank)
         torch.cuda.set_device(rank)
+        print(f"sykdebug: begin ModelRunner, device rank={rank}")
         default_dtype = torch.get_default_dtype()
         torch.set_default_dtype(hf_config.torch_dtype)
         torch.set_default_device("cuda")
         self.model = Qwen3ForCausalLM(hf_config)
+        
         load_model(self.model, config.model)
         self.sampler = Sampler()
         self.warmup_model()
@@ -93,6 +95,7 @@ class ModelRunner:
         torch.cuda.reset_peak_memory_stats()
         max_num_batched_tokens, max_model_len = self.config.max_num_batched_tokens, self.config.max_model_len
         num_seqs = min(max_num_batched_tokens // max_model_len, self.config.max_num_seqs)
+        print(f"sykdebug: begin warmup_model, max_num_batched_tokens={max_num_batched_tokens}, max_model_len={max_model_len}, num_seqs={num_seqs}")
         seqs = [Sequence([0] * max_model_len) for _ in range(num_seqs)]
         self.run(seqs, True)
         torch.cuda.empty_cache()
@@ -111,6 +114,9 @@ class ModelRunner:
         assert config.num_kvcache_blocks > 0
         self.kv_cache = torch.empty(2, hf_config.num_hidden_layers, config.num_kvcache_blocks, self.block_size, num_kv_heads, head_dim)
         layer_id = 0
+        print(f"sykdebug: during allocate_kv_cache, total={total}, gpu_memory_utilization={config.gpu_memory_utilization}, used={used}, peak={peak}, current={current}")
+        print(f"sykdebug: during allocate_kv_cache, num_kv_heads={num_kv_heads}, head_dim={head_dim}, block_size={self.block_size}, "
+              f"block_bytes={block_bytes}, num_kvcache_blocks={config.num_kvcache_blocks}")
         for module in self.model.modules():
             if hasattr(module, "k_cache") and hasattr(module, "v_cache"):
                 module.k_cache = self.kv_cache[0, layer_id]
@@ -124,6 +130,7 @@ class ModelRunner:
         return block_tables
 
     def prepare_prefill(self, seqs: list[Sequence]):
+        print(f"sykdebug: begin to run prefill")
         input_ids = []
         positions = []
         cu_seqlens_q = [0]
@@ -136,13 +143,19 @@ class ModelRunner:
             seqlen = len(seq)
             input_ids.extend(seq[seq.num_cached_tokens:])
             positions.extend(list(range(seq.num_cached_tokens, seqlen)))
+            print(f"sykdebug: during prefill, for seq_id={seq.seq_id}, num_cached_tokens={seq.num_cached_tokens}, "
+                  f"extend input_ids to len(input_ids)={len(input_ids)}, extend positions to len(positions)={len(positions)}")
             seqlen_q = seqlen - seq.num_cached_tokens
             seqlen_k = seqlen
             cu_seqlens_q.append(cu_seqlens_q[-1] + seqlen_q)
             cu_seqlens_k.append(cu_seqlens_k[-1] + seqlen_k)
             max_seqlen_q = max(seqlen_q, max_seqlen_q)
             max_seqlen_k = max(seqlen_k, max_seqlen_k)
+            print(f"sykdebug: begin to deal with one sequence, seq.seq_id={seq.seq_id}, seqlen={len(seq)}, "
+                  f"seq.num_cached_tokens={seq.num_cached_tokens}, seqlen_q={seqlen_q}, seqlen_k={seqlen_k}, "
+                  f"max_seqlen_q={max_seqlen_q}, max_seqlen_k={max_seqlen_k}, seq.num_blocks={seq.num_blocks}")
             if not seq.block_table:    # warmup
+                print(f"sykdebug: no block_table")
                 continue
             for i in range(seq.num_cached_blocks, seq.num_blocks):
                 start = seq.block_table[i] * self.block_size
@@ -189,8 +202,10 @@ class ModelRunner:
     @torch.inference_mode()
     def run_model(self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill: bool):
         if is_prefill or self.enforce_eager or input_ids.size(0) > 512:
+            print(f"sykdebug: begin to run_model, is_prefill={is_prefill}, no graph mode; input_ids.shape={input_ids.shape}")
             return self.model.compute_logits(self.model(input_ids, positions))
         else:
+            print(f"sykdebug: begin to run_model, graph mode")
             bs = input_ids.size(0)
             context = get_context()
             graph = self.graphs[next(x for x in self.graph_bs if x >= bs)]

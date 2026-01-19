@@ -3,9 +3,18 @@ from nanovllm import LLM, SamplingParams
 from transformers import AutoTokenizer
 
 
+# 设置使用本地文件
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+
 def main():
     path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
+    print(f"sykdebug: begin init tokenizer")
     tokenizer = AutoTokenizer.from_pretrained(path)
+    print(f"sykdebug: finish init tokenizer")
+    
+    # sykdebug: 调用两卡
     llm = LLM(path, enforce_eager=True, tensor_parallel_size=1)
 
     sampling_params = SamplingParams(temperature=0.6, max_tokens=256)

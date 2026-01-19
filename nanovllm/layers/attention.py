@@ -60,15 +60,19 @@ class Attention(nn.Module):
         context = get_context()
         k_cache, v_cache = self.k_cache, self.v_cache
         if k_cache.numel() and v_cache.numel():
+            print(f"sykdebug: during attention, k_cache/v_cache not empty, "
+                  f"k_cache.shape={k_cache.shape}, v_cache.shape={v_cache.shape}, context.slot_mapping.shape={context.slot_mapping.shape}")
             store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)
         if context.is_prefill:
             if context.block_tables is not None:    # prefix cache
+                print(f"sykdebug: during attention, context.is_prefill={context.is_prefill} context.block_tables not none, prefix cache")
                 k, v = k_cache, v_cache
             o = flash_attn_varlen_func(q, k, v,
                                        max_seqlen_q=context.max_seqlen_q, cu_seqlens_q=context.cu_seqlens_q,
                                        max_seqlen_k=context.max_seqlen_k, cu_seqlens_k=context.cu_seqlens_k,
                                        softmax_scale=self.scale, causal=True, block_table=context.block_tables)
         else:    # decode
+            print(f"sykdebug: during attention, begin decode, use k_cache, v_cache directly")
             o = flash_attn_with_kvcache(q.unsqueeze(1), k_cache, v_cache,
                                         cache_seqlens=context.context_lens, block_table=context.block_tables, 
                                         softmax_scale=self.scale, causal=True)

@@ -73,6 +73,7 @@ class Qwen3Attention(nn.Module):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
     ) -> torch.Tensor:
+        print(f"sykdebug: during qwen3attention, hidden_states.shape={hidden_states.shape}")
         qkv = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         q = q.view(-1, self.num_heads, self.head_dim)
@@ -123,6 +124,11 @@ class Qwen3DecoderLayer(nn.Module):
         config: Qwen3Config,
     ) -> None:
         super().__init__()
+        print(f"sykdebug: during init qwen3decoderlayer, hidden_size={config.hidden_size}, num_attention_heads={config.num_attention_heads}, "
+              f"num_key_value_heads={config.num_key_value_heads}, max_position={config.max_position_embeddings}, "
+              f"rms_norm_eps={config.rms_norm_eps}, attention_bias={getattr(config, 'attention_bias', True)}, "
+              f"head_dim={getattr(config, 'head_dim', None)}, rope_theta={getattr(config, 'rope_theta', 1000000)}, "
+              f"rope_scaling={getattr(config, 'rope_scaling', None)}")
         self.self_attn = Qwen3Attention(
             hidden_size=config.hidden_size,
             num_heads=config.num_attention_heads,

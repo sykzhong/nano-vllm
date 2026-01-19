@@ -27,6 +27,7 @@ class Scheduler:
         num_seqs = 0
         num_batched_tokens = 0
         while self.waiting and num_seqs < self.max_num_seqs:
+            print(f"sykdebug: during schedule, waiting not empty, num_seqs={num_seqs} < self.max_num_seqs={self.max_num_seqs}")
             seq = self.waiting[0]
             if num_batched_tokens + len(seq) > self.max_num_batched_tokens or not self.block_manager.can_allocate(seq):
                 break

@@ -21,12 +21,14 @@ class LLMEngine:
         self.ps = []
         self.events = []
         ctx = mp.get_context("spawn")
+        print(f"sykdebug: tensor_parallel_size={config.tensor_parallel_size}")
         for i in range(1, config.tensor_parallel_size):
             event = ctx.Event()
             process = ctx.Process(target=ModelRunner, args=(config, i, event))
             process.start()
             self.ps.append(process)
             self.events.append(event)
+            print(f"sykdebug: create subprocess {i}")
         self.model_runner = ModelRunner(config, 0, self.events)
         self.tokenizer = AutoTokenizer.from_pretrained(config.model, use_fast=True)
         config.eos = self.tokenizer.eos_token_id
