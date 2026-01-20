@@ -48,6 +48,7 @@ class Scheduler:
         while self.running and num_seqs < self.max_num_seqs:
             seq = self.running.popleft()
             while not self.block_manager.can_append(seq):
+                print(f"sykdebug: during scheduler, block_manager cannot append for seq.seq_id={seq.seq_id}")
                 if self.running:
                     self.preempt(self.running.pop())
                 else:
@@ -58,10 +59,12 @@ class Scheduler:
                 self.block_manager.may_append(seq)
                 scheduled_seqs.append(seq)
         assert scheduled_seqs
+        # sykdebug: 翻转，保障下次轮询的时候轮询到上次的队头，让每个序列的获得机会一致
         self.running.extendleft(reversed(scheduled_seqs))
         return scheduled_seqs, False
 
     def preempt(self, seq: Sequence):
+        print(f"sykdebug: during schedule, for seq.seq_id={seq.seq_id}, execute preempt, turn to waiting, and deallocate")
         seq.status = SequenceStatus.WAITING
         self.block_manager.deallocate(seq)
         self.waiting.appendleft(seq)
@@ -71,6 +74,8 @@ class Scheduler:
             print(f"sykdebug: during postprocess, for seq.seq_id={seq.seq_id}, append token_id={token_id}")
             seq.append_token(token_id)
             if (not seq.ignore_eos and token_id == self.eos) or seq.num_completion_tokens == seq.max_tokens:
+                print(f"sykdebug: during postprocess, for seq.seq_id={seq.seq_id}, self.eos={self.eos}, "
+                      f"seq.num_completion_tokens={seq.num_completion_tokens}, seq.max_tokens={seq.max_tokens}, set it to finish.")
                 seq.status = SequenceStatus.FINISHED
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)

@@ -62,6 +62,7 @@ class BlockManager:
         cache_miss = False
         for i in range(seq.num_blocks):
             token_ids = seq.block(i)
+            # sykdebug: 仅当token_ids刚好满足一个block，才计算hash，否则hash为-1
             h = self.compute_hash(token_ids, h) if len(token_ids) == self.block_size else -1
             block_id = self.hash_to_block_id.get(h, -1)
             if block_id == -1 or self.blocks[block_id].token_ids != token_ids:
@@ -76,15 +77,19 @@ class BlockManager:
                     block.ref_count += 1
                 else:
                     block = self._allocate_block(block_id)
+            print(f"sykdebug: during blockManager.allocate, for seq.seq_id={seq.seq_id}, len(token_ids)={len(token_ids)}, "
+                  f"h={h}, block_id={block_id}, cache_miss={cache_miss}, seq.num_cached_tokens={seq.num_cached_tokens}, "
+                  f"block.ref_count={block.ref_count}")
             if h != -1:
                 block.update(h, token_ids)
                 self.hash_to_block_id[h] = block_id
             seq.block_table.append(block_id)
     
-        print(f"sykdebug: during BlockManager.allocate, for seq_id={seq.seq_id}, num_blocks={seq.num_blocks}, "
+        print(f"sykdebug: during blockManager.allocate, for seq_id={seq.seq_id}, num_blocks={seq.num_blocks}, "
               f"seq.block_table={seq.block_table}, len(used_block_ids)={len(self.used_block_ids)}")
 
     def deallocate(self, seq: Sequence):
+        print(f"sykdebug: begin blockManager.deallocate, for seq_id={seq.seq_id}, block_table={seq.block_table}, clear it")
         for block_id in reversed(seq.block_table):
             block = self.blocks[block_id]
             block.ref_count -= 1
@@ -104,6 +109,8 @@ class BlockManager:
             block_id = self.free_block_ids[0]
             self._allocate_block(block_id)
             block_table.append(block_id)
+            print(f"sykdebug: during blockManager.may_append, seq.seq_id={seq.seq_id}, len(seq)={len(seq)}, "
+                  f"%block_size==1, set new block to seq, last_block.hash={last_block.hash}, block_table={block_table}")
         elif len(seq) % self.block_size == 0:
             assert last_block.hash == -1
             token_ids = seq.block(seq.num_blocks-1)
@@ -111,5 +118,8 @@ class BlockManager:
             h = self.compute_hash(token_ids, prefix)
             last_block.update(h, token_ids)
             self.hash_to_block_id[h] = last_block.block_id
+            print(f"sykdebug: during blockManager.may_append, seq.seq_id={seq.seq_id}, len(seq)={len(seq)}, "
+                  f"%block_size==0, update hash, last_block.hash={last_block.hash}, block_table={block_table}")
         else:
+            print(f"sykdebug: during blockManager.may_append, seq.seq_id={seq.seq_id}, len(seq)={len(seq)}, nothing happened")
             assert last_block.hash == -1
